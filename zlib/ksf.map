@@ -1,0 +1,33 @@
+/* Export only the zlib entry points provided by the shim.
+ *
+ * The script is anonymous (no version name) so the symbols stay unversioned,
+ * which is what makes them interposable in front of a versioned libz.
+ */
+{
+   global:
+      compress;
+      compress2;
+      compress_z;
+      compress2_z;
+      compressBound;
+      compressBound_z;
+      deflate;
+      deflateInit_;
+      deflateInit2_;
+      deflateEnd;
+      deflateReset;
+      deflateResetKeep;
+      deflateCopy;
+      deflateBound;
+      deflateBound_z;
+      deflateUsed;
+      deflatePending;
+      deflateParams;
+      deflateTune;
+      deflateSetDictionary;
+      deflateGetDictionary;
+      deflatePrime;
+      deflateSetHeader;
+   local:
+      *;
+};
