@@ -1,0 +1,8 @@
+/* Export only the public C API from libksflate.so. */
+{
+   global:
+      ksflate_compress;
+      ksflate_free;
+   local:
+      *;
+};
