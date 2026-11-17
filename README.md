@@ -6,17 +6,25 @@ A fork of the reference-exact KZIP/PNGOUT reconstructions aimed at two things:
 2. **speed** — the engine is now free of process-wide mutable state, so
    independent compressions run in parallel.
 
-This directory currently contains the zlib shim and the de-static engine work.
-The original reconstructions in `../kzip-decomp/` and `../pngout-decomp/` are
-untouched and remain the byte-exact oracle.
+This directory contains the public C API, the zlib shim and the de-static
+engine work. The original reconstructions in `../kzip-decomp/` and
+`../pngout-decomp/` are untouched and remain the byte-exact oracle.
 
 ## Build
 
 ```sh
-make            # build/libksf.so, build/abi_test, build/stream_abi
+make            # libksf.so, libksflate.{a,so}, test binaries
 make test       # ABI + round-trip + streaming + consumer tests
 make clean
 ```
+
+Outputs:
+
+| file | purpose |
+|---|---|
+| `build/libksflate.a` | C API, static |
+| `build/libksflate.so` | C API, shared (exports only `ksflate_*`) |
+| `build/libksf.so` | zlib deflate-side shim for `LD_PRELOAD` |
 
 The engine sources under `src/` are copied from `../kzip-decomp/src/` and are
 built as C++20. Only the deflate side is provided; `inflate*`, `crc32`,
@@ -34,6 +42,38 @@ LD_PRELOAD=/tmp/ksf/libksf.so python3 -c 'import zlib; print(zlib.decompress(zli
 ```
 
 Set `KSF_VERBOSE=1` to trace each segment on stderr.
+
+## C API
+
+`include/ksflate.h` is the public C interface to the engine, independent of
+the zlib shim. It is what the pigz fork uses for level 10.
+
+```c
+#include "ksflate.h"
+
+size_t len;
+unsigned char *out = ksflate_compress(in, in_len, NULL, 0, 0, 1, &len);
+if (out == NULL) { /* allocation failure */ }
+write(fd, out, len);
+ksflate_free(out);
+```
+
+It produces **raw DEFLATE** (RFC 1951), not zlib or gzip framing. Arguments:
+
+- `dict` / `dict_len` — up to `KSFLATE_WINDOW_SIZE` (32768) bytes of history
+  preceding `in` in the same stream; `NULL` / `0` for none.
+- `literal_only` — Huffman-only mode, equivalent to `Z_HUFFMAN_ONLY`.
+- `final_block` — set `BFINAL` and produce a complete stream; `0` ends the
+  segment with a sync marker so another segment can follow.
+
+For large inputs, split the data and chain segments: pass the previous chunk's
+last 32 KiB as `dict`, use `final_block = 0` for all but the last chunk, and
+concatenate the outputs. The result is deterministic and calls are
+thread-safe.
+
+Link the static library with the C++ runtime (`g++`/`clang++`, or add
+`-lstdc++` / `-lc++`). The shared library exports only `ksflate_compress` and
+`ksflate_free` (see `include/ksflate.map`).
 
 ## Implemented entry points
 
@@ -204,7 +244,10 @@ inputs (12-core machine), outputs byte-identical to the serial runs:
   DICTID, raw, oversized dictionaries, gzip rejection, reset semantics),
   custom allocators, interleaved streams, init error paths;
 * `tests/concurrent.cpp`: the engine driven from six threads, every result
-  checked against the serial output (also clean under ThreadSanitizer).
+  checked against the serial output (also clean under ThreadSanitizer);
+* `tests/c_api.c`: the public C API compiled as C and linked against
+  `libksflate.a`, covering complete streams, literal-only mode, dictionaries,
+  chained segments, empty input and argument validation.
 
 Additional manual checks (not committed): random-chunk fuzzing across all flush
 modes and levels, and `zipfile` / `gzip` / `tarfile` round-trips.
